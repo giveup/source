@@ -167,7 +167,7 @@ endef
 TARGET_DEVICES += eap120
 
 define Device/tl-wdr4300-v1
-$(Device/tplink-8mlzma)
+$(Device/tplink-16mlzma)
   DEVICE_TITLE := TP-LINK TL-WDR4300 v1
   DEVICE_PACKAGES := kmod-usb-core kmod-usb2 kmod-usb-ledtrig-usbport
   BOARDNAME := TL-WDR4300
@@ -196,7 +196,7 @@ $(Device/tplink-8mlzma)
 endef
 
 define Device/tl-wdr4300-v1-il
-$(Device/tplink-8mlzma)
+$(Device/tplink-16mlzma)
   DEVICE_TITLE := TP-LINK TL-WDR4300 v1 IL
   DEVICE_PACKAGES := kmod-usb-core kmod-usb2 kmod-usb-ledtrig-usbport
   BOARDNAME := TL-WDR4300
