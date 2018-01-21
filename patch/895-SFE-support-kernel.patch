@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..ddcf7af
 --- /dev/null
 +++ b/./target/linux/generic/patches-4.4/895-patch-kernel-support-SFE.patch
-@@ -0,0 +1,364 @@
+@@ -0,0 +1,390 @@
 +--- a/include/linux/if_bridge.h	2017-06-24 11:38:23.000000000 +0800
 ++++ b/include/linux/if_bridge.h	2017-06-24 11:41:58.824178423 +0800
 +@@ -51,6 +51,7 @@ struct br_ip_list {
@@ -216,7 +216,7 @@ index 0000000..ddcf7af
 + 
 + err_proto:
 +--- a/net/netfilter/nf_conntrack_ecache.c	2017-06-07 18:06:14.000000000 +0800
-++++ b/net/netfilter/nf_conntrack_ecache.c	2017-06-24 12:06:30.439749498 +0800
+++++ b/net/netfilter/nf_conntrack_ecache.c	2017-12-06 13:43:11.303821000 +0800
 +@@ -18,6 +18,7 @@
 + #include <linux/stddef.h>
 + #include <linux/err.h>
@@ -225,7 +225,7 @@ index 0000000..ddcf7af
 + #include <linux/kernel.h>
 + #include <linux/netdevice.h>
 + #include <linux/slab.h>
-+@@ -117,26 +118,20 @@ static void ecache_work(struct work_stru
++@@ -117,91 +118,58 @@
 +  * disabled softirqs */
 + void nf_ct_deliver_cached_events(struct nf_conn *ct)
 + {
@@ -255,44 +255,36 @@ index 0000000..ddcf7af
 + 
 + 	/* We make a copy of the missed event cache without taking
 + 	 * the lock, thus we may send missed events twice. However,
-+@@ -144,62 +139,35 @@ void nf_ct_deliver_cached_events(struct
-+ 	missed = e->missed;
-+ 
-+ 	if (!((events | missed) & e->ctmask))
++ 	 * this does not harm and it happens very rarely. */
++-	missed = e->missed;
++-
++-	if (!((events | missed) & e->ctmask))
 +-		goto out_unlock;
-++		return;
-+ 
-+ 	item.ct = ct;
-+ 	item.portid = 0;
-+ 	item.report = 0;
-+ 
++-
++-	item.ct = ct;
++-	item.portid = 0;
++-	item.report = 0;
++-
 +-	ret = notify->fcn(events | missed, &item);
-++	atomic_notifier_call_chain(&net->ct.nf_conntrack_chain,
-++			events | missed,
-++			&item);
-+ 
++-
 +-	if (likely(ret >= 0 && !missed))
 +-		goto out_unlock;
-++	if (likely(!missed))
-++		return;
-+ 
-+ 	spin_lock_bh(&ct->lock);
++-
++-	spin_lock_bh(&ct->lock);
 +-	if (ret < 0)
 +-		e->missed |= events;
 +-	else
 +-		e->missed &= ~missed;
-++	e->missed &= ~missed;
-+ 	spin_unlock_bh(&ct->lock);
-+ 
++-	spin_unlock_bh(&ct->lock);
++-
 +-out_unlock:
 +-	rcu_read_unlock();
-+ }
-+ EXPORT_SYMBOL_GPL(nf_ct_deliver_cached_events);
-+ 
++-}
++-EXPORT_SYMBOL_GPL(nf_ct_deliver_cached_events);
++-
 +-int nf_conntrack_register_notifier(struct net *net,
 +-				   struct nf_ct_event_notifier *new)
-++int nf_conntrack_register_notifier(struct net *net, struct notifier_block *nb)
-+ {
++-{
 +-	int ret;
 +-	struct nf_ct_event_notifier *notify;
 +-
@@ -309,14 +301,12 @@ index 0000000..ddcf7af
 +-out_unlock:
 +-	mutex_unlock(&nf_ct_ecache_mutex);
 +-	return ret;
-++	return atomic_notifier_chain_register(&net->ct.nf_conntrack_chain, nb);
-+ }
-+ EXPORT_SYMBOL_GPL(nf_conntrack_register_notifier);
-+ 
++-}
++-EXPORT_SYMBOL_GPL(nf_conntrack_register_notifier);
++-
 +-void nf_conntrack_unregister_notifier(struct net *net,
 +-				      struct nf_ct_event_notifier *new)
-++int nf_conntrack_unregister_notifier(struct net *net, struct notifier_block *nb)
-+ {
++-{
 +-	struct nf_ct_event_notifier *notify;
 +-
 +-	mutex_lock(&nf_ct_ecache_mutex);
@@ -325,10 +315,46 @@ index 0000000..ddcf7af
 +-	BUG_ON(notify != new);
 +-	RCU_INIT_POINTER(net->ct.nf_conntrack_event_cb, NULL);
 +-	mutex_unlock(&nf_ct_ecache_mutex);
++-	/* synchronize_rcu() is called from ctnetlink_exit. */
++-}
+++ 	missed = e->missed;
+++ 
+++ 	if (!((events | missed) & e->ctmask))
+++		return;
+++ 
+++ 	item.ct = ct;
+++ 	item.portid = 0;
+++ 	item.report = 0;
+++ 
+++	atomic_notifier_call_chain(&net->ct.nf_conntrack_chain,
+++			events | missed,
+++			&item);
+++ 
+++	if (likely(!missed))
+++		return;
+++ 
+++ 	spin_lock_bh(&ct->lock);
+++	e->missed &= ~missed;
+++ 	spin_unlock_bh(&ct->lock);
+++ 
+++ }
+++ EXPORT_SYMBOL_GPL(nf_ct_deliver_cached_events);
+++ 
+++int nf_conntrack_register_notifier(struct net *net, struct notifier_block *nb)
+++ {
+++	return atomic_notifier_chain_register(&net->ct.nf_conntrack_chain, nb);
+++ }
+++ EXPORT_SYMBOL_GPL(nf_conntrack_register_notifier);
+++ 
+++int nf_conntrack_unregister_notifier(struct net *net, struct notifier_block *nb)
+++ {
 ++	return atomic_notifier_chain_unregister(&net->ct.nf_conntrack_chain, nb);
-+ }
+++ 	/* synchronize_rcu() is called from ctnetlink_exit. */
+++ }
 + EXPORT_SYMBOL_GPL(nf_conntrack_unregister_notifier);
 + 
++ int nf_ct_expect_register_notifier(struct net *net,
++
 +--- a/net/netfilter/nf_conntrack_netlink.c	2017-06-07 18:06:14.000000000 +0800
 ++++ b/net/netfilter/nf_conntrack_netlink.c	2017-06-24 12:09:18.044153196 +0800
 +@@ -28,6 +28,7 @@
